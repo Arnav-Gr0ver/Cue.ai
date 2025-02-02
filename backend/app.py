@@ -1,12 +1,9 @@
+from flask import Flask, render_template
 import gradio as gr
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
-#from pymongo import MongoClient
 
-#client = MongoClient("mongodb://localhost:27017/")
-#db = client["cim_database"]
-#doc_collection = db["cim_documents"]
-#query_collection = db["cim_queries"]
+app = Flask(__name__)
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
 model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", torch_dtype=torch.float16, device_map="auto")
@@ -14,9 +11,6 @@ model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B-Instruct",
 def review_cim(file, user_input):
     with open(file.name, "r", encoding="utf-8") as f:
         document_text = f.read()
-    
-    #doc_entry = {"filename": file.name, "content": document_text}
-    #doc_id = doc_collection.insert_one(doc_entry).inserted_id
     
     prompt = (
         "You are an AI specialized in reviewing Confidential Information Memorandums (CIMs). "
@@ -29,17 +23,23 @@ def review_cim(file, user_input):
     output = model.generate(**inputs, max_length=512)
     response = tokenizer.decode(output[0], skip_special_tokens=True)
     
-    #query_entry = {"document_id": doc_id, "query": user_input, "response": response}
-    #query_collection.insert_one(query_entry)
-    
     return response
 
-demo = gr.Interface(
+gradio_ui = gr.Interface(
     fn=review_cim,
     inputs=[gr.File(label="Upload CIM Document"), gr.Textbox(label="Ask a Question")],
     outputs=gr.Textbox(label="AI Response"),
-    title="Confidential Information Memorandum (CIM) Reviewer",
-    description="Upload a CIM document and ask questions related to investment analysis."
+    title="Finagen AI - Automated Financial Document Review",
+    description="Upload a CIM document and let AI analyze investment insights."
 )
 
-demo.launch()
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/gradio")
+def gradio():
+    return gradio_ui.launch(share=False, inline=True)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5001, debug=True)
