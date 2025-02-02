@@ -1,64 +1,45 @@
 import gradio as gr
-from huggingface_hub import InferenceClient
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+#from pymongo import MongoClient
 
-"""
-For more information on `huggingface_hub` Inference API support, please check the docs: https://huggingface.co/docs/huggingface_hub/v0.22.2/en/guides/inference
-"""
-client = InferenceClient("HuggingFaceH4/zephyr-7b-beta")
+#client = MongoClient("mongodb://localhost:27017/")
+#db = client["cim_database"]
+#doc_collection = db["cim_documents"]
+#query_collection = db["cim_queries"]
 
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", torch_dtype=torch.float16, device_map="auto")
 
-def respond(
-    message,
-    history: list[tuple[str, str]],
-    system_message,
-    max_tokens,
-    temperature,
-    top_p,
-):
-    messages = [{"role": "system", "content": system_message}]
+def review_cim(file, user_input):
+    with open(file.name, "r", encoding="utf-8") as f:
+        document_text = f.read()
+    
+    #doc_entry = {"filename": file.name, "content": document_text}
+    #doc_id = doc_collection.insert_one(doc_entry).inserted_id
+    
+    prompt = (
+        "You are an AI specialized in reviewing Confidential Information Memorandums (CIMs). "
+        "Only answer questions related to CIMs, investment risks, financials, and company overviews. "
+        "If a question is out of scope, respond with 'I can only answer questions related to CIMs.'\n\n"
+        f"CIM Document:\n{document_text}\n\nUser Question: {user_input}\n\nAI Response:"
+    )
+    
+    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    output = model.generate(**inputs, max_length=512)
+    response = tokenizer.decode(output[0], skip_special_tokens=True)
+    
+    #query_entry = {"document_id": doc_id, "query": user_input, "response": response}
+    #query_collection.insert_one(query_entry)
+    
+    return response
 
-    for val in history:
-        if val[0]:
-            messages.append({"role": "user", "content": val[0]})
-        if val[1]:
-            messages.append({"role": "assistant", "content": val[1]})
-
-    messages.append({"role": "user", "content": message})
-
-    response = ""
-
-    for message in client.chat_completion(
-        messages,
-        max_tokens=max_tokens,
-        stream=True,
-        temperature=temperature,
-        top_p=top_p,
-    ):
-        token = message.choices[0].delta.content
-
-        response += token
-        yield response
-
-
-"""
-For information on how to customize the ChatInterface, peruse the gradio docs: https://www.gradio.app/docs/chatinterface
-"""
-demo = gr.ChatInterface(
-    respond,
-    additional_inputs=[
-        gr.Textbox(value="You are a friendly Chatbot.", label="System message"),
-        gr.Slider(minimum=1, maximum=2048, value=512, step=1, label="Max new tokens"),
-        gr.Slider(minimum=0.1, maximum=4.0, value=0.7, step=0.1, label="Temperature"),
-        gr.Slider(
-            minimum=0.1,
-            maximum=1.0,
-            value=0.95,
-            step=0.05,
-            label="Top-p (nucleus sampling)",
-        ),
-    ],
+demo = gr.Interface(
+    fn=review_cim,
+    inputs=[gr.File(label="Upload CIM Document"), gr.Textbox(label="Ask a Question")],
+    outputs=gr.Textbox(label="AI Response"),
+    title="Confidential Information Memorandum (CIM) Reviewer",
+    description="Upload a CIM document and ask questions related to investment analysis."
 )
 
-
-if __name__ == "__main__":
-    demo.launch()
+demo.launch()
